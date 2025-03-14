@@ -1,0 +1,81 @@
+services:
+  dd-agent:
+    container_name: dd-agent
+    # Known Issue: Agent versions 7.61.0 through 7.63.0 have an issue where OTLP ingestion pipelines may 
+    # fail to start in Docker environments, showing the error: Error running the OTLP ingest pipeline: failed 
+    # to register process metrics: process does not exist.
+    # If you are using an affected version, you can use one of these workarounds:
+    # 1. Set the environment variable HOST_PROC to /proc in your Agent Docker container.
+    # 2. Remove /proc/:/host/proc/:ro from volumes in your Agent Docker container.
+    # 3. Set pid to host in your Agent Docker container.
+    # These configurations can be applied through either the docker command or Docker compose file.
+    # See: https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest_in_the_agent/?tab=docker
+    image: datadog/agent:7.60.0
+    environment:
+      DD_API_KEY: ${DATADOG_API_KEY}
+      DD_SITE: ${DATADOG_SITE}
+      #DD_APPLICATION_KEY: ${DATADOG_APP_KEY}
+      DD_DOGSTATSD_NON_LOCAL_TRAFFIC: true
+      DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT: "0.0.0.0:4317"
+      DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT: "0.0.0.0:4318"
+      DD_LOGS_ENABLED: true
+      DD_OTLP_CONFIG_LOGS_ENABLED: true
+      DD_TAGS: "app:telemetry-tom source:dd-agent"
+      DD_CONTAINER_LABELS_AS_TAGS: true
+      DD_PROCESS_CONFIG_PROCESS_COLLECTION_ENABLED: true
+    expose:
+      - 4317
+      - 4318
+      - 8125
+      - 8126
+    env_file:
+      - .env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc/:/host/proc/:ro
+      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    networks:
+      - app-network
+
+  sb-dd:
+    depends_on:
+      - dd-agent
+    container_name: springboot-datadog-telemetry-tom
+    build:
+        context: ./services/springboot-datadog-telemetry-tom
+        dockerfile: Dockerfile
+    ports:
+        - "8081:8080"
+    environment:
+        "management.datadog.metrics.export.enabled": "true"
+        "management.datadog.metrics.export.uri": "https://api.${DATADOG_SITE}"
+        "management.datadog.metrics.export.api-key": "${DATADOG_API_KEY}"
+        "management.datadog.metrics.export.application-key": "${DATADOG_APP_KEY}"
+        "management.datadog.metrics.export.step": "${DATADOG_STEP}"
+        "management.datadog.metrics.export.description": "Springboot Datadog Telemetry Tom"
+        "management.datadog.metrics.export.host-tag": "springboot-datadog-telemetry-tom"
+        "metrics.tags.application": "springboot-datadog-telemetry-tom-app"
+        "DD_AGENT_HOST": "dd-agent"
+    networks:
+      - app-network
+
+  # sb-otlp:
+  #   depends_on:
+  #     - dd-agent
+  #   container_name: springboot-opentelemtry-telemetry-tom
+  #   build:
+  #       context: ./services/springboot-datadog-telemetry-tom
+  #       dockerfile: Dockerfile
+  #   ports:
+  #       - "8082:8080"
+  #   environment:
+  #       "management.otlp.metrics.export.url": "http://dd-agent:4318"
+  #       "management.otlp.metrics.export.enabled": "true"
+  #       "metrics.tags.application": "springboot-opentelemtry-telemetry-tom-app"
+  #   networks:
+  #     - app-network
+
+networks:
+  app-network:
+    driver: bridge
